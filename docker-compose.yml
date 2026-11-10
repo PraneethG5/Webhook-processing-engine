@@ -49,6 +49,35 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  mock-destination:
+    build:
+      context: ./mock-destination
+      dockerfile: Dockerfile
+    container_name: polyglot-mock-destination
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: polyglot-worker
+    ports:
+      - "9100:9100"
+    environment:
+      REDIS_ADDR: "redis:6379"
+      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/webhooks?sslmode=disable"
+      METRICS_PORT: "9100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock-destination:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:
