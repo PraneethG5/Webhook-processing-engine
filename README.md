@@ -7,7 +7,3 @@ A webhook ingestion service in GO
 ```bash
 docker compose up --build
 ```
-
-- Gateway: `http://localhost:8080/v1/webhooks`
-- Health: `http://localhost:8080/healthz`
-- Metrics: `http://localhost:8080/metrics`
