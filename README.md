@@ -2,7 +2,7 @@
 
 An asynchronous webhook processing engine
 
-- [x] Go Ingestion Gateway: HMAC-SHA256 signature verification (`crypto/subtle.ConstantTimeCompare`), per-tenant Token Bucket rate limiting, and Redis Stream buffering (`webhooks:stream`).
+ Go Ingestion Gateway: HMAC-SHA256 signature verification (`crypto/subtle.ConstantTimeCompare`), per-tenant Token Bucket rate limiting, and Redis Stream buffering (`webhooks:stream`).
 ## How to Run
 
 ```bash
