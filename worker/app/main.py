@@ -18,37 +18,29 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
 )
-logger = logging.getLogger("worker-main")
+logger = logging.getLogger("worker")
 
 async def main():
-    logger.info("Initializing Polyglot Python Worker Engine...")
-
     redis_addr = os.getenv("REDIS_ADDR", "redis:6379")
     redis_password = os.getenv("REDIS_PASSWORD", None)
     db_url = os.getenv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/webhooks?sslmode=disable")
     metrics_port = int(os.getenv("METRICS_PORT", "9100"))
 
-    # 1. Start Prometheus HTTP Exporter
     try:
         start_http_server(metrics_port)
-        logger.info(f"Prometheus metrics server exposed on port {metrics_port}")
     except Exception as e:
-        logger.warning(f"Failed to bind metrics server on {metrics_port}: {e}")
+        logger.warning(f"metrics server failed on {metrics_port}: {e}")
 
-    # 2. Redis Connection
     redis_client = aioredis.from_url(
         f"redis://{redis_addr}",
         password=redis_password,
         decode_responses=False
     )
     await redis_client.ping()
-    logger.info("Connected to Redis successfully.")
 
-    # 3. PostgreSQL Database Pool
     db = Database(db_url)
     await db.connect()
 
-    # 4. Core Subsystems
     circuit_breakers = CircuitBreakerRegistry()
     dispatcher = WebhookDispatcher(circuit_breakers)
     await dispatcher.init_session()
@@ -66,7 +58,6 @@ async def main():
         idempotency_mgr=idempotency_mgr
     )
 
-    # 5. Background Tasks
     tasks = [
         asyncio.create_task(retry_mgr.start_retry_scheduler(), name="retry_scheduler"),
         asyncio.create_task(consumer.start(), name="stream_consumer")
@@ -75,7 +66,6 @@ async def main():
     stop_event = asyncio.Event()
 
     def handle_signal():
-        logger.info("Received termination signal. Shutting down worker...")
         stop_event.set()
 
     loop = asyncio.get_running_loop()
@@ -83,11 +73,10 @@ async def main():
         try:
             loop.add_signal_handler(sig, handle_signal)
         except NotImplementedError:
-            pass # Windows compatibility
+            pass
 
     await stop_event.wait()
 
-    logger.info("Cancelling worker tasks...")
     for t in tasks:
         t.cancel()
 
@@ -95,7 +84,6 @@ async def main():
     await dispatcher.close()
     await db.close()
     await redis_client.close()
-    logger.info("Worker gracefully terminated.")
 
 if __name__ == "__main__":
     try:

@@ -1,27 +1,21 @@
-# Binaries & build artifacts
 *.exe
-*.exe~
 *.dll
 *.so
 *.dylib
 bin/
 dist/
 
-# OS & IDE
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
 *.swp
 
-# Environment & logs
 *.env
 *.log
 
-# Python cache (if any)
 __pycache__/
-*.pyc
+*.py[cod]
 
-# Docker volumes / data
 pgdata/
 redisdata/

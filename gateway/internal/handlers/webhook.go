@@ -34,48 +34,44 @@ func (h *WebhookHandler) HandleIngest(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"Method Not Allowed"}`, http.StatusMethodNotAllowed)
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
 
 	tenantID := r.Header.Get("X-Tenant-ID")
 	if tenantID == "" {
 		metrics.WebhookRejectedTotal.WithLabelValues("unknown", "missing_tenant_header").Inc()
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "Missing required header: X-Tenant-ID"})
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "missing X-Tenant-ID header"})
 		return
 	}
 
 	tenant, exists := h.tenantStore.GetTenant(tenantID)
 	if !exists {
 		metrics.WebhookRejectedTotal.WithLabelValues(tenantID, "tenant_not_found").Inc()
-		respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid tenant ID"})
+		respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 
-	// 1. Read request body (limit to 1MB to prevent memory exhaustion attacks)
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1024*1024))
 	if err != nil {
 		metrics.WebhookRejectedTotal.WithLabelValues(tenantID, "body_read_error").Inc()
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to read request body"})
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to read body"})
 		return
 	}
 
-	// 2. Verify HMAC-SHA256 signature
 	signature := r.Header.Get("X-Signature-SHA256")
 	if signature == "" {
-		signature = r.Header.Get("X-Signature") // fallback header support
+		signature = r.Header.Get("X-Signature")
 	}
 
 	if !auth.VerifyHMACSHA256(body, tenant.InboundSecret, signature) {
 		metrics.WebhookRejectedTotal.WithLabelValues(tenantID, "invalid_signature").Inc()
-		respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid HMAC signature"})
+		respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid signature"})
 		return
 	}
 
-	// 3. Per-tenant Token Bucket Rate Limiting
 	rlResult, err := h.rateLimiter.Allow(r.Context(), tenant.ID, tenant.RateLimitPerSecond, tenant.BurstLimit)
 	if err != nil {
-		// Log error, but soft-allow if Redis has a transient issue or handle gracefully
 		metrics.WebhookRejectedTotal.WithLabelValues(tenantID, "ratelimit_error").Inc()
 	} else if !rlResult.Allowed {
 		metrics.RateLimitExceededTotal.WithLabelValues(tenantID).Inc()
@@ -84,7 +80,7 @@ func (h *WebhookHandler) HandleIngest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", strconv.FormatInt(int64(rlResult.RetryAfter.Seconds())+1, 10))
 		w.Header().Set("X-RateLimit-Remaining", "0")
 		respondJSON(w, http.StatusTooManyRequests, map[string]interface{}{
-			"error":            "Rate limit exceeded",
+			"error":            "rate limit exceeded",
 			"retry_after_secs": rlResult.RetryAfter.Seconds(),
 		})
 		return
@@ -92,7 +88,6 @@ func (h *WebhookHandler) HandleIngest(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(rlResult.RemainingTokens))
 
-	// 4. Construct Event Model
 	eventID := uuid.New().String()
 	idempotencyKey := r.Header.Get("X-Idempotency-Key")
 	eventType := r.Header.Get("X-Event-Type")
@@ -110,15 +105,12 @@ func (h *WebhookHandler) HandleIngest(w http.ResponseWriter, r *http.Request) {
 		MaxRetries:     5,
 	}
 
-	// 5. Push to Redis Stream
-	_, err = h.producer.PushEvent(r.Context(), event)
-	if err != nil {
+	if _, err := h.producer.PushEvent(r.Context(), event); err != nil {
 		metrics.WebhookRejectedTotal.WithLabelValues(tenantID, "queue_push_error").Inc()
-		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to enqueue webhook event"})
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to enqueue event"})
 		return
 	}
 
-	// 6. Record to Postgres asynchronously (so DB write latency does not block HTTP response)
 	go func(ev *models.IngestEvent) {
 		_ = h.tenantStore.RecordInitialEvent(context.Background(), ev)
 	}(event)
@@ -127,14 +119,12 @@ func (h *WebhookHandler) HandleIngest(w http.ResponseWriter, r *http.Request) {
 	metrics.WebhookIngestDuration.WithLabelValues(tenantID).Observe(duration)
 	metrics.WebhookAcceptedTotal.WithLabelValues(tenantID).Inc()
 
-	// 7. Fast HTTP 202 Accepted
-	resp := models.WebhookResponse{
+	respondJSON(w, http.StatusAccepted, models.WebhookResponse{
 		Status:    "accepted",
 		EventID:   eventID,
-		Message:   "Webhook received and queued for asynchronous processing",
+		Message:   "queued",
 		Timestamp: time.Now().UnixMilli(),
-	}
-	respondJSON(w, http.StatusAccepted, resp)
+	})
 }
 
 func respondJSON(w http.ResponseWriter, statusCode int, data interface{}) {
