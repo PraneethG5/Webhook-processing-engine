@@ -4,7 +4,7 @@ An async webhook ingestion engine w tenant isolation.
 
 ## Architecture
 
-- **Ingestion Gateway ** Receives inbound webhooks, verifies SHA256 signatures using constant-time comparison, evaluates tenant token bucket 
+- **Ingestion Gateway:** Receives inbound webhooks, verifies SHA256 signatures using constant-time comparison, evaluates tenant token bucket 
 - **Message Broker:** Manages event queues with consumer groups, automatic crashed-worker reclamation (`XAUTOCLAIM`), and delayed retry scheduling via sorted sets (`ZSET`).
 - **Worker Pool :** Asynchronously consumes queued events, enforces idempotency to prevent duplicate side effects, signs outbound webhooks with timestamped HMAC signatures, and logs delivery attempts to PostgreSQL.
 - **Observability:** Prometheus metrics exported from both the go gatewayand Python worker 
